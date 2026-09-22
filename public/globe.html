@@ -1,0 +1,285 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  />
+
+  <title>AeroRoute</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body, #globe {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #080e1c;
+    }
+
+    .marker {
+      color: white;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid #60a5fa;
+      border-radius: 6px;
+      padding: 5px 8px;
+      font: 600 11px Arial, sans-serif;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .airport {
+      border-color: #22c55e;
+    }
+
+    .aircraft {
+      font-size: 32px;
+      color: #ffffff;
+      text-shadow: 0 0 12px #38bdf8;
+      pointer-events: none;
+    }
+
+    #error {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: white;
+      font: 14px Arial, sans-serif;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="globe"></div>
+  <div id="error"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/globe.gl"></script>
+
+  <script>
+    let world;
+    let route = [];
+    let aircraft = null;
+    let followAircraft = false;
+
+    function send(type, payload = {}) {
+      window.parent.postMessage(
+        { type, ...payload },
+        window.location.origin
+      );
+    }
+
+    function createMarker(point) {
+      const element = document.createElement("div");
+
+      if (point.type === "aircraft") {
+        element.className = "aircraft";
+        element.textContent = "✈";
+      } else {
+        element.className =
+          point.type === "airport"
+            ? "marker airport"
+            : "marker";
+
+        element.textContent = point.ident;
+      }
+
+      return element;
+    }
+
+    function updateMarkers() {
+      if (!world) return;
+
+      const markers = [...route];
+
+      if (aircraft) {
+        markers.push({
+          ident: "AIRCRAFT",
+          lat: aircraft.lat,
+          lng: aircraft.lng,
+          type: "aircraft"
+        });
+      }
+
+      world.htmlElementsData(markers);
+    }
+
+    function setRoute(points) {
+      if (!world) return;
+
+      route = points;
+      aircraft = null;
+
+      world.pointsData(
+        points
+          .filter(point => point.type === "airport")
+          .map(point => ({
+            lat: point.lat,
+            lng: point.lng
+          }))
+      );
+
+      if (points.length >= 2) {
+        world.pathsData([{
+          coords: points.map(point => [
+            point.lat,
+            point.lng
+          ])
+        }]);
+
+        world.pointOfView({
+          lat: points[0].lat,
+          lng: points[0].lng,
+          altitude: 2.2
+        }, 1200);
+      }
+
+      updateMarkers();
+    }
+
+    function updateAircraft(data) {
+      if (!world || !route.length) return;
+
+      aircraft = {
+        lat: data.lat,
+        lng: data.lng
+      };
+
+      followAircraft = data.follow;
+
+      updateMarkers();
+
+      if (followAircraft) {
+        world.pointOfView({
+          lat: aircraft.lat,
+          lng: aircraft.lng,
+          altitude: 1.35
+        }, 0);
+      }
+    }
+
+    function resetGlobe() {
+      if (!world) return;
+
+      route = [];
+      aircraft = null;
+
+      world.pathsData([]);
+      world.pointsData([]);
+      world.htmlElementsData([]);
+
+      world.pointOfView({
+        lat: -15,
+        lng: -40,
+        altitude: 2.7
+      }, 800);
+    }
+
+    function initialize() {
+      if (typeof Globe === "undefined") {
+        document.getElementById("error").textContent =
+          "Não foi possível carregar o Globe.GL.";
+
+        send("ERROR", {
+          message: "Falha no carregamento do Globe.GL."
+        });
+
+        return;
+      }
+
+      world = new Globe(
+        document.getElementById("globe"),
+        { animateIn: false }
+      )
+        .width(window.innerWidth)
+        .height(window.innerHeight)
+
+        .backgroundColor("#080e1c")
+
+        .globeImageUrl(
+          "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg"
+        )
+
+        .bumpImageUrl(
+          "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
+        )
+
+        .pointOfView({
+          lat: -15,
+          lng: -40,
+          altitude: 2.7
+        })
+
+        .pointsData([])
+        .pointColor(() => "#22c55e")
+        .pointRadius(0.3)
+        .pointAltitude(0.02)
+
+        .pathsData([])
+        .pathPoints("coords")
+        .pathPointAlt(0.012)
+        .pathColor(() => "#38bdf8")
+        .pathStroke(0.45)
+
+        .htmlElementsData([])
+        .htmlLat("lat")
+        .htmlLng("lng")
+        .htmlAltitude(0.025)
+        .htmlElement(createMarker)
+        .htmlTransitionDuration(0);
+
+      window.addEventListener("resize", () => {
+        world
+          .width(window.innerWidth)
+          .height(window.innerHeight);
+      });
+
+      send("READY");
+    }
+
+    window.addEventListener("message", event => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const message = event.data;
+
+      if (!message || typeof message.type !== "string") {
+        return;
+      }
+
+      switch (message.type) {
+        case "ROUTE":
+          setRoute(message.points);
+          break;
+
+        case "AIRCRAFT":
+          updateAircraft(message);
+          break;
+
+        case "RESET":
+          resetGlobe();
+          break;
+
+        case "OVERVIEW":
+          if (route.length) {
+            world.pointOfView({
+              lat: route[0].lat,
+              lng: route[0].lng,
+              altitude: 2.7
+            }, 800);
+          }
+          break;
+      }
+    });
+
+    initialize();
+  </script>
+</body>
+</html>
