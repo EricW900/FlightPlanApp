@@ -260,3 +260,14 @@ body {
     padding: 0 16px;
   }
 }
+
+.ar-route-kind {
+  display: block;
+  color: #94a3b8;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.ar-route-list + .ar-button {
+  margin-top: 12px;
+}

@@ -1,4 +1,3 @@
-
 export type Coordinate = {
   lat: number;
   lng: number;
@@ -18,10 +17,12 @@ export type Waypoint = Coordinate & {
 
 export type RoutePoint = Coordinate & {
   ident: string;
-  type: "airport" | "fix";
+  type: "airport" | "fix" | "coordinate";
 };
 
 const EARTH_RADIUS_NM = 3440.065;
+const WAYPOINT_SPACING_NM = 80;
+const MAX_LEG_NM = 120;
 
 function radians(degrees: number) {
   return degrees * Math.PI / 180;
@@ -36,34 +37,19 @@ function clamp(value: number, min: number, max: number) {
 }
 
 // Distância entre dois pontos, em milhas náuticas.
-export function distanceNM(
-  a: Coordinate,
-  b: Coordinate
-): number {
+export function distanceNM(a: Coordinate, b: Coordinate): number {
   const lat1 = radians(a.lat);
   const lat2 = radians(b.lat);
-
   const deltaLat = radians(b.lat - a.lat);
   const deltaLng = radians(b.lng - a.lng);
-
-  const h =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(lat1) *
-    Math.cos(lat2) *
-    Math.sin(deltaLng / 2) ** 2;
-
-  const angle = 2 * Math.asin(
-    Math.sqrt(clamp(h, 0, 1))
-  );
-
-  return EARTH_RADIUS_NM * angle;
+  const h = Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return EARTH_RADIUS_NM * 2 * Math.asin(Math.sqrt(clamp(h, 0, 1)));
 }
 
-// Converte latitude e longitude para um vetor 3D.
 function toVector(point: Coordinate) {
   const lat = radians(point.lat);
   const lng = radians(point.lng);
-
   return {
     x: Math.cos(lat) * Math.cos(lng),
     y: Math.cos(lat) * Math.sin(lng),
@@ -71,244 +57,196 @@ function toVector(point: Coordinate) {
   };
 }
 
-// Interpolação esférica entre dois pontos.
-export function interpolate(
-  a: Coordinate,
-  b: Coordinate,
-  progress: number
-): Coordinate {
-  const t = clamp(progress, 0, 1);
+type Vector = ReturnType<typeof toVector>;
 
-  const v1 = toVector(a);
-  const v2 = toVector(b);
+function dot(a: Vector, b: Vector) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
 
-  const dot = clamp(
-    v1.x * v2.x +
-    v1.y * v2.y +
-    v1.z * v2.z,
-    -1,
-    1
-  );
-
-  const angle = Math.acos(dot);
-
-  if (angle < 0.000001) {
-    return { lat: a.lat, lng: a.lng };
-  }
-
-  const sinAngle = Math.sin(angle);
-
-  // Pontos quase antipodais exigiriam escolher
-  // explicitamente uma das trajetórias possíveis.
-  if (Math.abs(sinAngle) < 0.000001) {
-    return { lat: a.lat, lng: a.lng };
-  }
-
-  const factorA =
-    Math.sin((1 - t) * angle) / sinAngle;
-
-  const factorB =
-    Math.sin(t * angle) / sinAngle;
-
-  const x = factorA * v1.x + factorB * v2.x;
-  const y = factorA * v1.y + factorB * v2.y;
-  const z = factorA * v1.z + factorB * v2.z;
-
+function cross(a: Vector, b: Vector): Vector {
   return {
-    lat: degrees(
-      Math.atan2(z, Math.sqrt(x * x + y * y))
-    ),
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x
+  };
+}
+
+function normalize(v: Vector): Vector {
+  const length = Math.hypot(v.x, v.y, v.z);
+  return { x: v.x / length, y: v.y / length, z: v.z / length };
+}
+
+// Base do círculo máximo, independente da descontinuidade das longitudes.
+function greatCircle(a: Coordinate, b: Coordinate) {
+  const start = toVector(a);
+  const end = toVector(b);
+  const normal = cross(start, end);
+  const sinAngle = Math.hypot(normal.x, normal.y, normal.z);
+  const angle = Math.atan2(sinAngle, clamp(dot(start, end), -1, 1));
+
+  // Antípodas exatos admitem vários caminhos: escolha um plano estável.
+  const axis = Math.abs(start.z) < 0.9
+    ? { x: 0, y: 0, z: 1 }
+    : { x: 1, y: 0, z: 0 };
+  const plane = normalize(sinAngle > 1e-12 ? normal : cross(start, axis));
+  return { start, normal: plane, tangent: cross(plane, start), angle };
+}
+
+// Interpolação esférica compartilhada pelo desenho e pela simulação.
+export function interpolate(a: Coordinate, b: Coordinate, progress: number): Coordinate {
+  const t = clamp(progress, 0, 1);
+  if (t === 0) return { lat: a.lat, lng: a.lng };
+  if (t === 1) return { lat: b.lat, lng: b.lng };
+
+  const { start, tangent, angle } = greatCircle(a, b);
+  const factorA = Math.cos(t * angle);
+  const factorB = Math.sin(t * angle);
+  const x = factorA * start.x + factorB * tangent.x;
+  const y = factorA * start.y + factorB * tangent.y;
+  const z = factorA * start.z + factorB * tangent.z;
+  return {
+    lat: degrees(Math.atan2(z, Math.hypot(x, y))),
     lng: degrees(Math.atan2(y, x))
   };
 }
 
-// Gera a rota com aeroportos e waypoints.
+function coordinateIdent(point: Coordinate) {
+  return `${Math.abs(point.lat).toFixed(3)}${point.lat < 0 ? "S" : "N"}/` +
+    `${Math.abs(point.lng).toFixed(3)}${point.lng < 0 ? "W" : "E"}`;
+}
+
+// Planejamento geográfico para simulação; a base não contém aerovias,
+// procedimentos ou restrições operacionais. Nunca invente um fix publicado.
 export function generateRoute(
   origin: Airport,
   destination: Airport,
   waypoints: Waypoint[]
 ): RoutePoint[] {
   const start: RoutePoint = {
-    ident: origin.code,
-    lat: origin.lat,
-    lng: origin.lng,
-    type: "airport"
+    ident: origin.code, lat: origin.lat, lng: origin.lng, type: "airport"
   };
-
   const end: RoutePoint = {
-    ident: destination.code,
-    lat: destination.lat,
-    lng: destination.lng,
-    type: "airport"
+    ident: destination.code, lat: destination.lat, lng: destination.lng, type: "airport"
   };
+  const directDistance = distanceNM(start, end);
+  if (directDistance < 30) return [start, end];
 
-  const directDistance =
-    distanceNM(start, end);
+  const circle = greatCircle(start, end);
+  const bucketCount = Math.ceil(directDistance / WAYPOINT_SPACING_NM);
+  const spacing = directDistance / bucketCount;
+  const corridorWidth = clamp(directDistance * 0.02, 5, 20);
+  const buckets = new Map<number, {
+    point: Waypoint;
+    progress: number;
+    score: number;
+    key: string;
+  }>();
 
-  if (directDistance < 30) {
-    return [start, end];
-  }
+  // Examina a base uma única vez, incluindo os trechos junto aos aeroportos.
+  // Cada faixa de distância contribui com o fix mais próximo do trajeto.
+  for (const point of waypoints) {
+    if (!point.ident || !Number.isFinite(point.lat) || !Number.isFinite(point.lng) ||
+      Math.abs(point.lat) > 90 || Math.abs(point.lng) > 180) continue;
 
-  const sampleCount = Math.min(
-    5,
-    Math.max(1, Math.round(directDistance / 400))
-  );
-
-  // Distância máxima permitida entre o waypoint
-  // e sua posição ideal sobre o trajeto direto.
-  const searchRadius = Math.max(
-    75,
-    Math.min(180, directDistance * 0.10)
-  );
-
-  const selected: RoutePoint[] = [];
-  const used = new Set<string>();
-
-  let previousProgress = 0;
-
-  for (let i = 1; i <= sampleCount; i++) {
-    const progress = i / (sampleCount + 1);
-
-    const target = interpolate(
-      start,
-      end,
-      progress
+    const vector = toVector(point);
+    const deviation = EARTH_RADIUS_NM * Math.abs(
+      Math.asin(clamp(dot(vector, circle.normal), -1, 1))
     );
+    if (deviation > corridorWidth) continue;
 
-    let best: Waypoint | null = null;
+    const progress = EARTH_RADIUS_NM * Math.atan2(
+      dot(vector, circle.tangent), dot(vector, circle.start)
+    );
+    if (progress < 10 || progress > directDistance - 10) continue;
 
-    let bestDistance = Infinity;
-    let bestProgress = 0;
-
-    for (const waypoint of waypoints) {
-      const key =
-        `${waypoint.ident}:${waypoint.lat}:${waypoint.lng}`;
-
-      if (used.has(key)) continue;
-
-      const fromOrigin =
-        distanceNM(start, waypoint);
-
-      const toDestination =
-        distanceNM(waypoint, end);
-
-      // Evita pontos próximos demais dos aeroportos.
-      if (
-        fromOrigin < 20 ||
-        toDestination < 20
-      ) {
-        continue;
-      }
-
-      // Evita grandes desvios em relação
-      // à distância geográfica direta.
-      if (
-        fromOrigin + toDestination >
-        directDistance * 1.25 + 30
-      ) {
-        continue;
-      }
-
-      // Mantém os pontos avançando na rota.
-      if (
-        fromOrigin <= previousProgress + 10
-      ) {
-        continue;
-      }
-
-      const deviation =
-        distanceNM(target, waypoint);
-
-      if (
-        deviation <= searchRadius &&
-        deviation < bestDistance
-      ) {
-        best = waypoint;
-        bestDistance = deviation;
-        bestProgress = fromOrigin;
-      }
-    }
-
-    if (best) {
-      selected.push({
-        ident: best.ident,
-        lat: best.lat,
-        lng: best.lng,
-        type: "fix"
-      });
-
-      used.add(
-        `${best.ident}:${best.lat}:${best.lng}`
-      );
-
-      previousProgress = bestProgress;
+    const bucket = Math.floor(progress / spacing);
+    const score = deviation * 3 + Math.abs(progress - (bucket + 0.5) * spacing);
+    const key = `${point.ident}:${point.lat}:${point.lng}`;
+    const best = buckets.get(bucket);
+    if (!best || score < best.score || (score === best.score && key < best.key)) {
+      buckets.set(bucket, { point, progress, score, key });
     }
   }
 
-  return [start, ...selected, end];
+  const selected: RoutePoint[] = [start];
+  let previousProgress = 0;
+  for (const { point, progress } of [...buckets.values()].sort((a, b) => a.progress - b.progress)) {
+    const previous = selected[selected.length - 1];
+    const advance = progress - previousProgress;
+    // Impede recuos, pontos quase coincidentes e zigue-zagues no corredor.
+    if (advance < 20 || distanceNM(previous, point) > advance * 1.1 ||
+      distanceNM(point, end) > (directDistance - progress) * 1.1) continue;
+    selected.push({ ident: point.ident, lat: point.lat, lng: point.lng, type: "fix" });
+    previousProgress = progress;
+  }
+  selected.push(end);
+
+  // Em áreas sem cobertura, subdivida o trecho esférico por coordenadas.
+  // Estes pontos são explicitamente diferentes dos fixes da base.
+  const route: RoutePoint[] = [start];
+  for (let i = 1; i < selected.length; i++) {
+    const a = selected[i - 1];
+    const b = selected[i];
+    const legs = Math.ceil(distanceNM(a, b) / MAX_LEG_NM);
+    for (let step = 1; step < legs; step++) {
+      const point = interpolate(a, b, step / legs);
+      route.push({ ...point, ident: coordinateIdent(point), type: "coordinate" });
+    }
+    route.push(b);
+  }
+  return route;
 }
 
-// Soma a distância dos trechos consecutivos.
-export function routeDistance(
-  route: RoutePoint[]
-): number {
-  let total = 0;
-
-  for (let i = 0; i < route.length - 1; i++) {
-    total += distanceNM(
-      route[i],
-      route[i + 1]
-    );
+// Vértices apenas para desenho, sem acrescentar waypoints ao plano.
+// Usa a mesma interpolação da aeronave e longitudes contínuas no Pacífico.
+export function buildRoutePath(route: RoutePoint[]): Coordinate[] {
+  if (!route.length) return [];
+  const path: Coordinate[] = [{ lat: route[0].lat, lng: route[0].lng }];
+  for (let i = 1; i < route.length; i++) {
+    const start = route[i - 1];
+    const end = route[i];
+    const steps = Math.max(1, Math.ceil(distanceNM(start, end) / 10));
+    for (let step = 1; step <= steps; step++) {
+      const point = interpolate(start, end, step / steps);
+      const previousLng = path[path.length - 1].lng;
+      point.lng += 360 * Math.round((previousLng - point.lng) / 360);
+      path.push(point);
+    }
   }
+  return path;
+}
 
+export function routeDistance(route: RoutePoint[]): number {
+  let total = 0;
+  for (let i = 0; i < route.length - 1; i++) {
+    total += distanceNM(route[i], route[i + 1]);
+  }
   return total;
 }
 
-// Retorna a posição do avião para uma
-// determinada distância percorrida.
-export function positionAtDistance(
-  route: RoutePoint[],
-  traveledNM: number
-) {
-  if (!route.length) {
-    return {
-      lat: 0,
-      lng: 0,
-      next: "",
-      segment: 0
-    };
-  }
+export function positionAtDistance(route: RoutePoint[], traveledNM: number) {
+  if (!route.length) return { lat: 0, lng: 0, next: "", segment: 0 };
 
-  let remaining = Math.max(0, traveledNM);
-
+  const traveled = Math.max(0, traveledNM);
+  let segmentStart = 0;
   for (let i = 0; i < route.length - 1; i++) {
     const start = route[i];
     const end = route[i + 1];
-
-    const segmentDistance =
-      distanceNM(start, end);
-
-    if (remaining <= segmentDistance) {
-      const position = interpolate(
-        start,
-        end,
-        segmentDistance > 0
-          ? remaining / segmentDistance
-          : 1
-      );
-
+    const segmentDistance = distanceNM(start, end);
+    const segmentEnd = segmentStart + segmentDistance;
+    // Ao atingir um fix, passe ao trecho seguinte; ignore trechos vazios.
+    // Some na mesma ordem de routeDistance para reconhecer a chegada exata.
+    if (segmentDistance > 0 && traveled < segmentEnd) {
       return {
-        ...position,
+        ...interpolate(start, end, (traveled - segmentStart) / segmentDistance),
         next: end.ident,
         segment: i + 1
       };
     }
-
-    remaining -= segmentDistance;
+    segmentStart = segmentEnd;
   }
 
   const destination = route[route.length - 1];
-
   return {
     lat: destination.lat,
     lng: destination.lng,

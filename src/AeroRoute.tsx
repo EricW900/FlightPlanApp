@@ -10,6 +10,7 @@ import {
     Airport,
     RoutePoint,
     Waypoint,
+    buildRoutePath,
     generateRoute,
     positionAtDistance,
     routeDistance
@@ -49,6 +50,7 @@ export default function AeroRoute() {
 
   const [traveledNM, setTraveledNM] =
     useState(0);
+  const traveledNMRef = useRef(0);
 
   const [speed, setSpeed] =
     useState(450);
@@ -231,6 +233,7 @@ export default function AeroRoute() {
 
     setPlaying(false);
     setTraveledNM(0);
+    traveledNMRef.current = 0;
 
     const generatedRoute = generateRoute(
       origin,
@@ -240,11 +243,12 @@ export default function AeroRoute() {
 
     setRoute(generatedRoute);
 
-    const fixes = generatedRoute.length - 2;
+    const fixes = generatedRoute.filter(point => point.type === "fix").length;
+    const coordinates = generatedRoute.filter(point => point.type === "coordinate").length;
 
     setStatus(
-      fixes > 0
-        ? `Rota gerada com ${fixes} waypoint(s) intermediário(s).`
+      fixes + coordinates > 0
+        ? `Rota gerada: ${fixes} fix(es) da base e ${coordinates} ponto(s) por coordenadas.`
         : "Rota direta gerada. Nenhum waypoint " +
           "adequado foi encontrado para este trajeto."
     );
@@ -254,6 +258,8 @@ export default function AeroRoute() {
   const totalDistance = useMemo(() => {
     return routeDistance(route);
   }, [route]);
+
+  const routePath = useMemo(() => buildRoutePath(route), [route]);
 
   // Calcular a posição atual da aeronave.
   const aircraftPosition = useMemo(() => {
@@ -270,9 +276,10 @@ export default function AeroRoute() {
     }
 
     sendToGlobe("ROUTE", {
-      points: route
+      points: route,
+      path: routePath
     });
-  }, [globeReady, route]);
+  }, [globeReady, route, routePath]);
 
   // Atualizar a posição da aeronave no globo.
   useEffect(() => {
@@ -283,6 +290,7 @@ export default function AeroRoute() {
     sendToGlobe("AIRCRAFT", {
       lat: aircraftPosition.lat,
       lng: aircraftPosition.lng,
+      ahead: positionAtDistance(route, Math.min(totalDistance, traveledNM + 1)),
       follow: followAircraft
     });
   }, [
@@ -290,6 +298,8 @@ export default function AeroRoute() {
     route,
     aircraftPosition.lat,
     aircraftPosition.lng,
+    totalDistance,
+    traveledNM,
     followAircraft
   ]);
 
@@ -317,12 +327,17 @@ export default function AeroRoute() {
         timeFactor *
         (deltaSeconds / 3600);
 
-      setTraveledNM(previous =>
-        Math.min(
-          totalDistance,
-          previous + distanceIncrement
-        )
+      const nextDistance = Math.min(
+        totalDistance,
+        traveledNMRef.current + distanceIncrement
       );
+      traveledNMRef.current = nextDistance;
+      setTraveledNM(nextDistance);
+      if (nextDistance >= totalDistance) {
+        window.clearInterval(interval);
+        setPlaying(false);
+        setStatus("A aeronave chegou ao destino.");
+      }
     }, 100);
 
     return () => {
@@ -332,22 +347,6 @@ export default function AeroRoute() {
     playing,
     speed,
     timeFactor,
-    totalDistance
-  ]);
-
-  // Encerrar a simulação ao chegar ao destino.
-  useEffect(() => {
-    if (
-      playing &&
-      totalDistance > 0 &&
-      traveledNM >= totalDistance
-    ) {
-      setPlaying(false);
-      setStatus("A aeronave chegou ao destino.");
-    }
-  }, [
-    playing,
-    traveledNM,
     totalDistance
   ]);
 
@@ -361,6 +360,7 @@ export default function AeroRoute() {
       traveledNM >= totalDistance
     ) {
       setTraveledNM(0);
+      traveledNMRef.current = 0;
     }
 
     setPlaying(previous => !previous);
@@ -369,6 +369,7 @@ export default function AeroRoute() {
   function handleReset() {
     setPlaying(false);
     setTraveledNM(0);
+    traveledNMRef.current = 0;
 
     setStatus(
       "Simulação reiniciada. " +
@@ -392,6 +393,9 @@ export default function AeroRoute() {
       `Destino: ${route[route.length - 1].ident}`,
       "",
       `Rota: ${route.map(p => p.ident).join(" → ")}`,
+      "Coordenadas calculadas: " + (
+        route.filter(p => p.type === "coordinate").map(p => p.ident).join(" → ") || "nenhuma"
+      ),
       "",
       `Distância: ${totalDistance.toFixed(1)} NM`,
       `Velocidade: ${speed} kt`,
@@ -647,6 +651,35 @@ export default function AeroRoute() {
               </div>
             </div>
           </section>
+
+          {route.length > 0 && (
+            <section className="ar-panel">
+              <h2>Pontos da rota ({route.length})</h2>
+              <p className="ar-note">
+                Fixes da base próximos ao trajeto. Nas lacunas, coordenadas
+                calculadas mantêm os trechos em até 120 NM.
+                Plano geográfico para simulação, sem seleção de aerovias ou procedimentos.
+              </p>
+              <ol className="ar-route-list">
+                {route.map((point, index) => (
+                  <li key={`${index}:${point.ident}`}>
+                    <strong>{point.ident}</strong>
+                    <span className="ar-route-kind">
+                      {point.type === "airport" ? "Aeroporto" :
+                        point.type === "fix" ? "Fix da base" : "Coordenada calculada"}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <button
+                type="button"
+                className="ar-button ar-full"
+                onClick={handleCopyRoute}
+              >
+                Copiar plano de voo
+              </button>
+            </section>
+          )}
 
           <section className="ar-panel">
             <h2>Visualização</h2>
