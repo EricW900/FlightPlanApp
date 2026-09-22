@@ -403,7 +403,6 @@ export default function AeroRoute() {
         formatMinutes(totalDistance / speed * 60)
       }`,
       "",
-      "Somente para simulação."
     ].join("\n");
 
     try {
