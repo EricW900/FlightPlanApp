@@ -655,11 +655,6 @@ export default function AeroRoute() {
           {route.length > 0 && (
             <section className="ar-panel">
               <h2>Pontos da rota ({route.length})</h2>
-              <p className="ar-note">
-                Fixes da base próximos ao trajeto. Nas lacunas, coordenadas
-                calculadas mantêm os trechos em até 120 NM.
-                Plano geográfico para simulação, sem seleção de aerovias ou procedimentos.
-              </p>
               <ol className="ar-route-list">
                 {route.map((point, index) => (
                   <li key={`${index}:${point.ident}`}>
