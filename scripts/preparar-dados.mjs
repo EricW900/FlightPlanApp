@@ -28,13 +28,15 @@ async function downloadCSV(url) {
 
   const csv = await response.text();
 
+  // Parseia
   return parse(csv, {
-    columns: true,
+    columns: true, // é para usar primeiras linhas como nome de colunas
     skip_empty_lines: true,
     bom: true
   });
 }
 
+// Garante latitude e longitude válida
 function validCoordinate(lat, lng) {
   return (
     Number.isFinite(lat) &&

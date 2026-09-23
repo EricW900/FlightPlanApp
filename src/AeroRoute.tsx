@@ -1,19 +1,21 @@
+// IMPORTS NECESSÁRIOS
 
 import {
-    useEffect,
-    useMemo,
-    useRef,
-    useState
+  useEffect, // executar efeito colateral (algo que sai do fluxo, tipo registrar evento, buscar dado, mexer com API etc...)
+  useMemo, // memoriza valores derivados
+  useRef, // é uma referência mutável que não provoca renderização quando muda
+  useState // armazenar estado (ex. const [speed, setSpeed] = useState(450);)
 } from "react";
 
+// IMPORTS QUE VEM DO GEO.TS
 import {
-    Airport,
-    RoutePoint,
-    Waypoint,
-    buildRoutePath,
-    generateRoute,
-    positionAtDistance,
-    routeDistance
+  Airport, // type
+  RoutePoint, // type
+  Waypoint, // type
+  buildRoutePath, // func
+  generateRoute, // func
+  positionAtDistance, // func
+  routeDistance // func
 } from "./geo";
 
 import "./AeroRoute.css";
@@ -31,6 +33,7 @@ function formatMinutes(value: number) {
 
 export default function AeroRoute() {
   // Dados dos aeroportos e waypoints.
+  // array de obj do tipo airports
   const [airports, setAirports] =
     useState<Airport[]>([]);
 
@@ -42,18 +45,23 @@ export default function AeroRoute() {
     useState("SBGR");
 
   const [destinationCode, setDestinationCode] =
-    useState("SBGL");
+    useState("EGLL");
 
   // Rota e simulação.
   const [route, setRoute] =
     useState<RoutePoint[]>([]);
 
+
+
+
+
+  // progresso (quanto foi percorrido em milhas náuticas (NM))
   const [traveledNM, setTraveledNM] =
     useState(0);
   const traveledNMRef = useRef(0);
 
   const [speed, setSpeed] =
-    useState(450);
+    useState(450); // em knots ~883Km/h
 
   const [timeFactor, setTimeFactor] =
     useState(60);
@@ -64,19 +72,31 @@ export default function AeroRoute() {
   const [followAircraft, setFollowAircraft] =
     useState(false);
 
-  // Comunicação com o globo.
+
+
+
+
+
+  // Comunicação com o globo. (Usa o elemento IFrame)
   const iframeRef =
     useRef<HTMLIFrameElement>(null);
 
+  // Valida se o globo terminou de renderizar
   const [globeReady, setGlobeReady] =
     useState(false);
 
-  // Estados da interface.
+  // Estados de loading
   const [loading, setLoading] =
     useState(true);
 
   const [status, setStatus] =
     useState("Carregando aeroportos e waypoints...");
+
+  ///////////////////////////////
+
+
+
+
 
   // Carregar os arquivos JSON.
   useEffect(() => {
@@ -85,6 +105,7 @@ export default function AeroRoute() {
     async function loadData() {
       try {
         const [airportsResponse, waypointsResponse] =
+        // paralelo
           await Promise.all([
             fetch("/airports.json", {
               signal: controller.signal
@@ -121,9 +142,11 @@ export default function AeroRoute() {
           );
         }
 
+        // Salva com um set
         setAirports(airportsData);
         setWaypoints(waypointsData);
 
+        // Atualiza status e traz quantidade de registros de cada lista
         setStatus(
           `${airportsData.length} aeroportos e ` +
           `${waypointsData.length} waypoints carregados.`
@@ -146,14 +169,21 @@ export default function AeroRoute() {
 
     loadData();
 
-    return () => controller.abort();
+    return () => controller.abort(); // cancela os requests pendentes
   }, []);
+
+
+
+
+
+
 
   // Enviar comandos do React para o globo.
   function sendToGlobe(
     type: string,
     payload: Record<string, unknown> = {}
   ) {
+    // pra não crashar a aplicação, basicametne verifica se existe iframeRef
     iframeRef.current?.contentWindow?.postMessage(
       {
         type,
@@ -162,6 +192,8 @@ export default function AeroRoute() {
       window.location.origin
     );
   }
+
+
 
   // Receber a confirmação de carregamento do globo.
   useEffect(() => {
@@ -200,6 +232,8 @@ export default function AeroRoute() {
     };
   }, []);
 
+
+
   // Gerar uma nova rota.
   function handleGenerateRoute() {
     const origin = airports.find(
@@ -235,13 +269,14 @@ export default function AeroRoute() {
     setTraveledNM(0);
     traveledNMRef.current = 0;
 
+    // Chama a função generateRoute
     const generatedRoute = generateRoute(
       origin,
       destination,
       waypoints
     );
 
-    setRoute(generatedRoute);
+    setRoute(generatedRoute); // set
 
     const fixes = generatedRoute.filter(point => point.type === "fix").length;
     const coordinates = generatedRoute.filter(point => point.type === "coordinate").length;
@@ -254,12 +289,16 @@ export default function AeroRoute() {
     );
   }
 
+
+
   // Calcular a distância total da rota.
   const totalDistance = useMemo(() => {
     return routeDistance(route);
   }, [route]);
 
   const routePath = useMemo(() => buildRoutePath(route), [route]);
+
+
 
   // Calcular a posição atual da aeronave.
   const aircraftPosition = useMemo(() => {
@@ -269,7 +308,10 @@ export default function AeroRoute() {
     );
   }, [route, traveledNM]);
 
-  // Atualizar o trajeto desenhado no globo.
+
+
+
+  // Atualizar o trajeto (rota) desenhado no globo.
   useEffect(() => {
     if (!globeReady || route.length < 2) {
       return;
@@ -281,6 +323,9 @@ export default function AeroRoute() {
     });
   }, [globeReady, route, routePath]);
 
+
+
+
   // Atualizar a posição da aeronave no globo.
   useEffect(() => {
     if (!globeReady || route.length < 2) {
@@ -290,7 +335,7 @@ export default function AeroRoute() {
     sendToGlobe("AIRCRAFT", {
       lat: aircraftPosition.lat,
       lng: aircraftPosition.lng,
-      ahead: positionAtDistance(route, Math.min(totalDistance, traveledNM + 1)),
+      ahead: positionAtDistance(route, Math.min(totalDistance, traveledNM + 1)), // Isso vai um pouco a frente para calcular a direção do avião
       follow: followAircraft
     });
   }, [
@@ -318,21 +363,28 @@ export default function AeroRoute() {
       const now = performance.now();
 
       const deltaSeconds =
-        (now - lastUpdate) / 1000;
+        (now - lastUpdate) / 1000; // Converte milissegundos em segundos
 
       lastUpdate = now;
 
+      // distancia = velocidade * tempo
       const distanceIncrement =
         speed *
         timeFactor *
-        (deltaSeconds / 3600);
+        (deltaSeconds / 3600); // 1 hora = 3600 segundos
 
+      // Impede o avião de ultrapassar o destino
       const nextDistance = Math.min(
         totalDistance,
         traveledNMRef.current + distanceIncrement
       );
-      traveledNMRef.current = nextDistance;
-      setTraveledNM(nextDistance);
+
+
+      traveledNMRef.current = nextDistance; // Valor mutável para o loop
+      setTraveledNM(nextDistance); // Atualiza a interface
+
+
+      // Chegada
       if (nextDistance >= totalDistance) {
         window.clearInterval(interval);
         setPlaying(false);
@@ -340,6 +392,7 @@ export default function AeroRoute() {
       }
     }, 100);
 
+    // Limpa o timer
     return () => {
       window.clearInterval(interval);
     };
@@ -372,8 +425,7 @@ export default function AeroRoute() {
     traveledNMRef.current = 0;
 
     setStatus(
-      "Simulação reiniciada. " +
-      "A aeronave voltou para a origem."
+      "Simulação reiniciada."
     );
   }
 
@@ -383,11 +435,12 @@ export default function AeroRoute() {
     sendToGlobe("OVERVIEW");
   }
 
+  // Copia para area de transferência
   async function handleCopyRoute() {
     if (!route.length) return;
 
     const text = [
-      "AEROROUTE 3D - PLANO SIMULADO",
+      "AEROROUTE 3D - PLANO DE VOO",
       "",
       `Origem: ${route[0].ident}`,
       `Destino: ${route[route.length - 1].ident}`,
@@ -419,6 +472,7 @@ export default function AeroRoute() {
   }
 
   // Indicadores do voo.
+  // Percentual = percorrido / total * 100
   const progress = totalDistance > 0
     ? Math.min(
         100,
@@ -432,7 +486,7 @@ export default function AeroRoute() {
   );
 
   const estimatedDuration =
-    totalDistance / speed * 60;
+    totalDistance / speed * 60; // (O * 60 é para gerar horas)
 
   const remainingDuration =
     remainingDistance / speed * 60;
@@ -442,13 +496,7 @@ export default function AeroRoute() {
       <header className="ar-header">
         <div>
           <h1>AeroRoute 3D</h1>
-
-          <span>
-            Planejamento e simulação de voo
-          </span>
         </div>
-
-        <span>EXPO WEB</span>
       </header>
 
       <main className="ar-main">
@@ -545,6 +593,7 @@ export default function AeroRoute() {
                 <option value={250}>250 kt</option>
                 <option value={450}>450 kt</option>
                 <option value={850}>850 kt</option>
+                <option value={1177}>Mach 2.2 (Concorde)</option>
               </select>
             </div>
 
@@ -566,6 +615,8 @@ export default function AeroRoute() {
                 <option value={10}>10×</option>
                 <option value={60}>60×</option>
                 <option value={120}>120×</option>
+                <option value={240}>240×</option>
+                <option value={480}>480×</option>
               </select>
             </div>
 
@@ -655,7 +706,7 @@ export default function AeroRoute() {
             <section className="ar-panel">
               <h2>Pontos da rota ({route.length})</h2>
               <ol className="ar-route-list">
-                {route.map((point, index) => (
+                {route.map((point, index) => ( // Iterando pelos waypoints
                   <li key={`${index}:${point.ident}`}>
                     <strong>{point.ident}</strong>
                     <span className="ar-route-kind">
@@ -703,6 +754,8 @@ export default function AeroRoute() {
           </section>
         </aside>
 
+
+        {/* IFrame para puxar o globe.html */}
         <section className="ar-globe-area">
           <iframe
             ref={iframeRef}
@@ -719,6 +772,8 @@ export default function AeroRoute() {
               : "Selecione dois aeroportos"}
           </div>
         </section>
+
+
       </main>
     </div>
   );

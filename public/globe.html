@@ -85,8 +85,7 @@
     let aircraft = null;
     let followAircraft = false;
     let aircraftElement = null;
-    // A linha e o centro do ícone devem ocupar a mesma superfície.
-    const ROUTE_ALTITUDE = 0.012;
+    const ROUTE_ALTITUDE = 0.022;
 
     function send(type, payload = {}) {
       window.parent.postMessage(
@@ -98,12 +97,12 @@
     function createMarker(point) {
       const element = document.createElement("div");
 
+      // Mostra elementos na tela (Avião, pontos de coordenadas e fixos)
       if (point.type === "aircraft") {
         element.className = "aircraft";
         element.innerHTML = '<svg viewBox="0 0 32 32" aria-label="Aeronave"><path fill="currentColor" stroke="#0f172a" stroke-width="1" d="M16 2 L19 13 L29 20 L29 23 L19 20 L18 26 L22 29 L22 31 L16 29 L10 31 L10 29 L14 26 L13 20 L3 23 L3 20 L13 13 Z"/></svg>';
         aircraftElement = element;
       } else if (point.type === "coordinate") {
-        // Coordenadas continuam visíveis sem dezenas de rótulos sobrepostos.
         element.className = "coordinate";
         element.title = `${point.ident} (coordenada calculada)`;
       } else {
@@ -130,16 +129,20 @@
       world.htmlElementsData(markers);
     }
 
+    // Para alinhar o avião com a rota (heading do nariz do avião)
     function updateAircraftHeading() {
       if (!aircraftElement || !aircraft?.ahead) return;
+
       const current = world.getScreenCoords(aircraft.lat, aircraft.lng, ROUTE_ALTITUDE);
       const ahead = world.getScreenCoords(aircraft.ahead.lat, aircraft.ahead.lng, ROUTE_ALTITUDE);
       const dx = ahead.x - current.x;
       const dy = ahead.y - current.y;
+
       if (Math.hypot(dx, dy) > 0.001) {
         aircraftElement.firstElementChild.style.transform =
-          `rotate(${Math.atan2(dx, -dy) * 180 / Math.PI}deg)`;
+          `rotate(${Math.atan2(dx, -dy) * 180 / Math.PI}deg)`; // calcula angulo do vetor na tela e gira o svg do avião
       }
+
     }
 
     function setRoute(points, path) {
@@ -158,6 +161,7 @@
           }))
       );
 
+      // Desenha a linha para o format do globe
       if (points.length >= 2) {
         world.pathsData([{
           coords: path.map(point => [
@@ -166,6 +170,7 @@
           ])
         }]);
 
+        // Move a câmera
         world.pointOfView({
           lat: points[0].lat,
           lng: points[0].lng,
@@ -179,7 +184,7 @@
     function updateAircraft(data) {
       if (!world || !route.length) return;
 
-      // Preserve o objeto e o elemento entre frames para evitar recriá-los.
+      // Preserva o objeto e o elemento entre frames para evitar recriá-los
       aircraft ??= { ident: "AIRCRAFT", type: "aircraft" };
       Object.assign(aircraft, {
         lat: data.lat,
@@ -263,7 +268,7 @@
         .pathsData([])
         .pathPoints("coords")
         .pathPointAlt(ROUTE_ALTITUDE)
-        // O React já enviou a curva esférica amostrada. Não interpolar lat/lng.
+
         .pathResolution(Infinity)
         .pathTransitionDuration(0)
         .pathColor(() => "#38bdf8")
@@ -276,7 +281,7 @@
         .htmlElement(createMarker)
         .htmlTransitionDuration(0);
 
-      world.controls().addEventListener("change", updateAircraftHeading);
+      world.controls().addEventListener("change", updateAircraftHeading); // quando o usuário rotacionar o planeta, rotaciona junto o avião caso necessário
 
       window.addEventListener("resize", () => {
         world
