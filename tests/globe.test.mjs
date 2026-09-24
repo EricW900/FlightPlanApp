@@ -4,11 +4,18 @@ import test from "node:test";
 import vm from "node:vm";
 import { buildRoutePath } from "../src/geo.ts";
 
-test("globe uses the supplied spherical path and the aircraft stays on its altitude", () => {
+for (const location of [
+  { protocol: "https:", origin: "https://aeroroute.example" },
+  { protocol: "file:", origin: "null" },
+  { protocol: "file:", origin: "file://" },
+]) {
+test(`globe route and aircraft bridge works on ${location.protocol} (${location.origin})`, () => {
   const values = {};
   const listeners = {};
   const elements = new WeakMap();
   let created = 0;
+  const sent = [];
+  const parent = { postMessage: (data, origin) => sent.push({ data, origin }) };
   const world = new Proxy({}, {
     get: (_, method) => (...args) => {
       if (method === "controls") return { addEventListener() {} };
@@ -32,15 +39,19 @@ test("globe uses the supplied spherical path and the aircraft stays on its altit
       createElement: () => ({ firstElementChild: { style: {} } })
     },
     window: {
-      location: { origin: "http://localhost" },
-      parent: { postMessage() {} },
+      location,
+      parent,
       addEventListener: (type, listener) => { listeners[type] = listener; }
     },
     requestAnimationFrame: fn => fn()
   });
   const html = readFileSync(new URL("../public/globe.html", import.meta.url), "utf8");
+  assert.match(html, /backgroundImageUrl\([\s\S]*night-sky\.png/);
+  assert.match(html, /earth-blue-marble\.jpg/);
   vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
-  const send = data => listeners.message({ origin: "http://localhost", data });
+  assert.equal(sent[0].data.type, "READY");
+  assert.equal(sent[0].origin, location.protocol === "file:" ? "*" : location.origin);
+  const send = data => listeners.message({ origin: location.origin, source: parent, data });
   const points = [
     { ident: "A", lat: -35, lng: -70, type: "airport" },
     { ident: "B", lat: -37, lng: 175, type: "airport" }
@@ -53,6 +64,7 @@ test("globe uses the supplied spherical path and the aircraft stays on its altit
   assert.equal(values.pathTransitionDuration, 0);
   assert.equal(values.htmlTransitionDuration, 0);
   assert.equal(values.pathPointAlt, values.htmlAltitude);
+  assert.match(values.backgroundImageUrl, /night-sky\.png$/);
 
   send({ type: "AIRCRAFT", ...path[1], ahead: path[2], follow: false });
   const marker = values.htmlElementsData.at(-1);
@@ -63,7 +75,15 @@ test("globe uses the supplied spherical path and the aircraft stays on its altit
   assert.equal(marker.lat, path[2].lat);
   assert.equal(values.pointOfView.lat, path[2].lat);
   assert.match(elements.get(marker).firstElementChild.style.transform, /^rotate\(/);
+  // Mesmo em file://, outras janelas não podem comandar o globo.
+  listeners.message({ origin: location.origin, source: {}, data: { type: "RESET" } });
+  assert.equal(values.pathsData.length, 1);
+  if (location.protocol === "https:") {
+    listeners.message({ origin: "https://untrusted.example", source: parent, data: { type: "RESET" } });
+    assert.equal(values.pathsData.length, 1);
+  }
   send({ type: "RESET" });
   assert.equal(values.pathsData.length, 0);
   assert.equal(values.htmlElementsData.length, 0);
 });
+}

@@ -32,7 +32,7 @@ async function downloadCSV(url) {
   return parse(csv, {
     columns: true, // é para usar primeiras linhas como nome de colunas
     skip_empty_lines: true,
-    bom: true
+    bom: true // assinatura para identificar o formato de texto
   });
 }
 
@@ -146,9 +146,9 @@ async function prepareWaypoints() {
     "utf8"
   );
 
-  console.log(
-    `Waypoints preparados: ${waypoints.length}`
-  );
+//   console.log(
+//     `Waypoints preparados: ${waypoints.length}`
+//   );
 }
 
 try {

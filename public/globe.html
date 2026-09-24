@@ -70,6 +70,7 @@
       color: white;
       font: 14px Arial, sans-serif;
     }
+
   </style>
 </head>
 
@@ -90,7 +91,7 @@
     function send(type, payload = {}) {
       window.parent.postMessage(
         { type, ...payload },
-        window.location.origin
+        window.location.protocol === "file:" ? "*" : window.location.origin
       );
     }
 
@@ -246,12 +247,16 @@
 
         .backgroundColor("#080e1c")
 
+        .backgroundImageUrl(
+          "https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/night-sky.png"
+        )
+
         .globeImageUrl(
-          "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg"
+          "https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/earth-blue-marble.jpg"
         )
 
         .bumpImageUrl(
-          "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
+          "https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/earth-topology.png"
         )
 
         .pointOfView({
@@ -293,7 +298,10 @@
     }
 
     window.addEventListener("message", event => {
-      if (event.origin !== window.location.origin) {
+      if (
+        event.source !== window.parent ||
+        (window.location.protocol !== "file:" && event.origin !== window.location.origin)
+      ) {
         return;
       }
 
@@ -328,7 +336,15 @@
       }
     });
 
-    initialize();
+    try {
+      initialize();
+    } catch (error) {
+      document.getElementById("error").textContent =
+        "Não foi possível iniciar o globo 3D. Verifique a conexão e o suporte a WebGL.";
+      send("ERROR", { message: "Não foi possível iniciar o globo 3D neste dispositivo." });
+      console.error(error);
+    }
   </script>
+
 </body>
 </html>

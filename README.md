@@ -1,56 +1,42 @@
-# Welcome to your Expo app 👋
+# AeroRoute 3D
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Planejador e simulador de rotas com Expo SDK 57, React e Globe.gl, para web, Android e iOS.
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Executar
 
 ```bash
-npm run reset-project
+npm install
+npm start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+- **Celular:** abra o QR code no Expo Go compatível com SDK 57. O celular e o computador devem estar na mesma rede.
+- **Web:** pressione `w` no terminal ou execute `npm run web`.
+- **Emulador Android:** execute `npm run android` com o emulador aberto.
+- **Simulador iOS:** execute `npm run ios` em um Mac.
 
-### Other setup steps
+Para gerar aplicativos instaláveis, use EAS Build: `npx eas-cli@latest build --platform android` ou `npx eas-cli@latest build --platform ios` (requer conta e configuração do EAS).
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Como funciona nas plataformas
 
-## Learn more
+`src/AeroRoute.tsx` usa a diretiva `"use dom"` do Expo. A mesma interface HTML/CSS roda diretamente na web e dentro da WebView fornecida pelo Expo no Android/iOS. Não é necessário hospedar um site para abrir o aplicativo instalado.
 
-To learn more about developing your project with Expo, look at the following resources:
+- `src/app/index.tsx` cuida da área segura, da área de transferência nativa e da pausa ao colocar o app em segundo plano.
+- `src/geo.ts` mantém os cálculos de rota compartilhados.
+- Os JSON de aeroportos e waypoints são importados para o bundle, sem `fetch` de arquivos locais.
+- `public/globe.html` é incluído pelo Expo no build nativo e usa `EXPO_BASE_URL` para localizar o arquivo. A comunicação valida a janela de origem e suporta tanto HTTP(S) quanto os arquivos locais do aplicativo.
+- Em telas pequenas, o globo fica acima dos controles, que podem ser rolados.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+**É necessária conexão com a internet para carregar o Globe.gl e as texturas do globo e das estrelas, que vêm de CDN.** A base de aeroportos e waypoints fica incluída no aplicativo.
 
-## Join the community
+Esta adaptação prioriza reaproveitar a interface existente. Alterações em DOM Components e arquivos de `public` devem ser distribuídas em um novo build nativo; não dependemos de EAS Update para atualizá-los. Referência: [Expo DOM Components](https://docs.expo.dev/guides/dom-components/).
 
-Join our community of developers creating universal apps.
+## Verificar
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npm run lint
+npm run typecheck
+npm test
+npx expo export --platform all
+```
+
+A exportação verifica os bundles das três plataformas; a validação final de gestos, teclado, clipboard e WebGL deve ser feita também em aparelhos reais.

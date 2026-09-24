@@ -17,6 +17,9 @@ body {
 
 .ar-root {
   height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: #080e1c;
   color: #f8fafc;
@@ -24,6 +27,7 @@ body {
 
 .ar-header {
   height: 70px;
+  flex-shrink: 0;
   padding: 0 26px;
   display: flex;
   align-items: center;
@@ -45,7 +49,7 @@ body {
 .ar-main {
   display: grid;
   grid-template-columns: 370px minmax(0, 1fr);
-  height: calc(100vh - 70px);
+  flex: 1;
   min-height: 0;
 }
 
@@ -99,7 +103,8 @@ body {
   color: white;
   border: 1px solid #43516a;
   border-radius: 7px;
-  font-size: 15px;
+  font-size: 16px;
+  min-height: 44px;
   outline: none;
 }
 
@@ -109,6 +114,8 @@ body {
 }
 
 .ar-button {
+  min-height: 44px;
+  touch-action: manipulation;
   padding: 12px;
   border: 0;
   border-radius: 8px;
@@ -252,22 +259,22 @@ body {
 
   .ar-sidebar {
     order: 2;
+    flex: 1;
+    height: auto;
+    padding: 12px;
     border-right: 0;
     border-top: 1px solid #273449;
   }
 
   .ar-globe-area {
     order: 1;
-    height: 55vh;
-    min-height: 400px;
-  }
-
-  .ar-globe {
-    height: 100%;
-    min-height: 400px;
+    flex: 0 0 38%;
+    height: auto;
+    min-height: 0;
   }
 
   .ar-header {
+    height: 54px;
     padding: 0 16px;
   }
 }

@@ -1,24 +1,37 @@
-// IMPORTS NECESSÁRIOS
+"use dom";
 
+// IMPORTS NECESSÁRIOS
 import {
-  useEffect, // executar efeito colateral (algo que sai do fluxo, tipo registrar evento, buscar dado, mexer com API etc...)
-  useMemo, // memoriza valores derivados
-  useRef, // é uma referência mutável que não provoca renderização quando muda
-  useState // armazenar estado (ex. const [speed, setSpeed] = useState(450);)
+    useEffect, // executar efeito colateral (algo que sai do fluxo, tipo registrar evento, buscar dado, mexer com API etc...)
+    useMemo, // memoriza valores derivados
+    useRef, // é uma referência mutável que não provoca renderização quando muda
+    useState // armazenar estado (ex. const [speed, setSpeed] = useState(450);)
 } from "react";
 
 // IMPORTS QUE VEM DO GEO.TS
 import {
-  Airport, // type
-  RoutePoint, // type
-  Waypoint, // type
-  buildRoutePath, // func
-  generateRoute, // func
-  positionAtDistance, // func
-  routeDistance // func
+    Airport, // type
+    RoutePoint, // type
+    Waypoint, // type
+    buildRoutePath, // func
+    generateRoute, // func
+    positionAtDistance, // func
+    routeDistance // func
 } from "./geo";
 
+import airportsData from "../public/airports.json";
+import waypointsData from "../public/waypoints.json";
 import "./AeroRoute.css";
+
+const airports: Airport[] = airportsData;
+const waypoints: Waypoint[] = waypointsData;
+const publicBaseUrl = (process.env.EXPO_BASE_URL || "/").replace(/\/?$/, "/");
+
+type AeroRouteProps = {
+  dom?: import("expo/dom").DOMProps;
+  isActive: boolean;
+  onCopyRoute: (text: string) => Promise<boolean>;
+};
 
 function formatMinutes(value: number) {
   const minutes = Math.max(0, Math.round(value));
@@ -31,15 +44,7 @@ function formatMinutes(value: number) {
   );
 }
 
-export default function AeroRoute() {
-  // Dados dos aeroportos e waypoints.
-  // array de obj do tipo airports
-  const [airports, setAirports] =
-    useState<Airport[]>([]);
-
-  const [waypoints, setWaypoints] =
-    useState<Waypoint[]>([]);
-
+export default function AeroRoute({ isActive, onCopyRoute }: AeroRouteProps) {
   // Campos do formulário.
   const [originCode, setOriginCode] =
     useState("SBGR");
@@ -69,6 +74,9 @@ export default function AeroRoute() {
   const [playing, setPlaying] =
     useState(false);
 
+  // Interrompe a simulação quando o app nativo entra em segundo plano.
+  if (!isActive && playing) setPlaying(false);
+
   const [followAircraft, setFollowAircraft] =
     useState(false);
 
@@ -85,99 +93,8 @@ export default function AeroRoute() {
   const [globeReady, setGlobeReady] =
     useState(false);
 
-  // Estados de loading
-  const [loading, setLoading] =
-    useState(true);
-
   const [status, setStatus] =
-    useState("Carregando aeroportos e waypoints...");
-
-  ///////////////////////////////
-
-
-
-
-
-  // Carregar os arquivos JSON.
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadData() {
-      try {
-        const [airportsResponse, waypointsResponse] =
-        // paralelo
-          await Promise.all([
-            fetch("/airports.json", {
-              signal: controller.signal
-            }),
-
-            fetch("/waypoints.json", {
-              signal: controller.signal
-            })
-          ]);
-
-        if (
-          !airportsResponse.ok ||
-          !waypointsResponse.ok
-        ) {
-          throw new Error(
-            "Não foi possível carregar os arquivos JSON."
-          );
-        }
-
-        const airportsData: Airport[] =
-          await airportsResponse.json();
-
-        const waypointsData: Waypoint[] =
-          await waypointsResponse.json();
-
-        if (controller.signal.aborted) return;
-
-        if (
-          !Array.isArray(airportsData) ||
-          !Array.isArray(waypointsData)
-        ) {
-          throw new Error(
-            "Os arquivos JSON possuem formato inválido."
-          );
-        }
-
-        // Salva com um set
-        setAirports(airportsData);
-        setWaypoints(waypointsData);
-
-        // Atualiza status e traz quantidade de registros de cada lista
-        setStatus(
-          `${airportsData.length} aeroportos e ` +
-          `${waypointsData.length} waypoints carregados.`
-        );
-
-        setLoading(false);
-      } catch (error) {
-        if (controller.signal.aborted) return;
-
-        console.error(error);
-
-        setStatus(
-          "Erro ao carregar os dados. " +
-          "Verifique os arquivos da pasta public."
-        );
-
-        setLoading(false);
-      }
-    }
-
-    loadData();
-
-    return () => controller.abort(); // cancela os requests pendentes
-  }, []);
-
-
-
-
-
-
-
+    useState(`${airports.length} aeroportos e ${waypoints.length} waypoints carregados.`);
   // Enviar comandos do React para o globo.
   function sendToGlobe(
     type: string,
@@ -189,7 +106,7 @@ export default function AeroRoute() {
         type,
         ...payload
       },
-      window.location.origin
+      window.location.protocol === "file:" ? "*" : window.location.origin
     );
   }
 
@@ -199,7 +116,7 @@ export default function AeroRoute() {
   useEffect(() => {
     function receiveMessage(event: MessageEvent) {
       if (
-        event.origin !== window.location.origin ||
+        (window.location.protocol !== "file:" && event.origin !== window.location.origin) ||
         event.source !== iframeRef.current?.contentWindow
       ) {
         return;
@@ -230,6 +147,16 @@ export default function AeroRoute() {
         receiveMessage
       );
     };
+  }, []);
+
+
+
+  useEffect(() => {
+    function pauseWhenHidden() {
+      if (document.hidden) setPlaying(false);
+    }
+    document.addEventListener("visibilitychange", pauseWhenHidden);
+    return () => document.removeEventListener("visibilitychange", pauseWhenHidden);
   }, []);
 
 
@@ -351,7 +278,7 @@ export default function AeroRoute() {
   // Executar o relógio da simulação.
   useEffect(() => {
     if (
-      !playing ||
+      !playing || !isActive ||
       totalDistance <= 0
     ) {
       return;
@@ -360,6 +287,10 @@ export default function AeroRoute() {
     let lastUpdate = performance.now();
 
     const interval = window.setInterval(() => {
+      if (document.hidden) {
+        setPlaying(false);
+        return;
+      }
       const now = performance.now();
 
       const deltaSeconds =
@@ -398,6 +329,7 @@ export default function AeroRoute() {
     };
   }, [
     playing,
+    isActive,
     speed,
     timeFactor,
     totalDistance
@@ -459,14 +391,15 @@ export default function AeroRoute() {
     ].join("\n");
 
     try {
-      await navigator.clipboard.writeText(text);
+      const copied = await onCopyRoute(text);
+      if (!copied) throw new Error("Falha ao copiar o plano.");
 
       setStatus(
         "Resumo da rota copiado para a área de transferência."
       );
     } catch {
       setStatus(
-        "Não foi possível copiar o plano neste navegador."
+        "Não foi possível copiar o plano de voo."
       );
     }
   }
@@ -518,6 +451,9 @@ export default function AeroRoute() {
                 <input
                   id="origin"
                   type="text"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
                   maxLength={4}
                   value={originCode}
                   placeholder="Ex.: SBGR"
@@ -537,6 +473,9 @@ export default function AeroRoute() {
                 <input
                   id="destination"
                   type="text"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
                   maxLength={4}
                   value={destinationCode}
                   placeholder="Ex.: SBGL"
@@ -552,7 +491,6 @@ export default function AeroRoute() {
                 type="submit"
                 className="ar-button ar-primary ar-full"
                 disabled={
-                  loading ||
                   !globeReady ||
                   airports.length === 0
                 }
@@ -565,13 +503,13 @@ export default function AeroRoute() {
               {status}
             </p>
 
-            <p className="ar-note">
+            {/* <p className="ar-note">
               Globo: {
                 globeReady
                   ? "pronto"
                   : "carregando..."
               }
-            </p>
+            </p> */}
           </section>
 
           <section className="ar-panel">
@@ -594,6 +532,7 @@ export default function AeroRoute() {
                 <option value={450}>450 kt</option>
                 <option value={850}>850 kt</option>
                 <option value={1177}>Mach 2.2 (Concorde)</option>
+                <option value={1836}>Mach 3.2 (Lockheed SR-71 Blackbird)</option>
               </select>
             </div>
 
@@ -759,18 +698,18 @@ export default function AeroRoute() {
         <section className="ar-globe-area">
           <iframe
             ref={iframeRef}
-            src="/globe.html"
+            src={`${publicBaseUrl}globe.html`}
             title="Globo terrestre interativo"
             className="ar-globe"
           />
 
-          <div className="ar-globe-label">
+          {/* <div className="ar-globe-label">
             {route.length > 0
               ? `${route[0].ident} → ${
                   route[route.length - 1].ident
                 }`
               : "Selecione dois aeroportos"}
-          </div>
+          </div> */}
         </section>
 
 

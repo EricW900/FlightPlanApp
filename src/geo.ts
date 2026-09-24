@@ -20,6 +20,9 @@ export type RoutePoint = Coordinate & {
   type: "airport" | "fix" | "coordinate";
 };
 
+
+// 1 milha náutiica ~= 1.852km
+
 const EARTH_RADIUS_NM = 3440.065; // Raio médio da terra em NM
 const WAYPOINT_SPACING_NM = 80; // Busca waypoints em faixas de aproximadamente 80 NM
 const MAX_LEG_NM = 120; // Nenhum waypoint deve ter mais de 120 Nm de distância
@@ -68,6 +71,9 @@ export function distanceNM(a: Coordinate, b: Coordinate): number {
 //////////////////////////////////////////////////////////////////////
 // Transforma latitude e longitude em um vetor 3D
 
+// x=cos(0) * cos(90°) = 0
+// y=cos(0) * sin(90°) = 1
+// z=sin(0) = 0
 function toVector(point: Coordinate) {
   const lat = radians(point.lat);
   const lng = radians(point.lng);
@@ -80,6 +86,7 @@ function toVector(point: Coordinate) {
 
 type Vector = ReturnType<typeof toVector>;
 
+// Calcula o produto escalar entre dois vetores
 function dot(a: Vector, b: Vector) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
@@ -102,13 +109,15 @@ function normalize(v: Vector): Vector {
 // Base do círculo máximo, independente da descontinuidade das longitudes
 // É o caminho geodésico mais curto sobre uma esfera
 function greatCircle(a: Coordinate, b: Coordinate) {
+
+  // converte coordenadas dos aeroportos em vetores 3d
   const start = toVector(a);
   const end = toVector(b);
+
   const normal = cross(start, end);
   const sinAngle = Math.hypot(normal.x, normal.y, normal.z);
   const angle = Math.atan2(sinAngle, clamp(dot(start, end), -1, 1));
 
-  // Antípodas exatos admitem vários caminhos: escolha um plano estável.
   const axis = Math.abs(start.z) < 0.9
     ? { x: 0, y: 0, z: 1 }
     : { x: 1, y: 0, z: 0 };
@@ -116,7 +125,7 @@ function greatCircle(a: Coordinate, b: Coordinate) {
   return { start, normal: plane, tangent: cross(plane, start), angle };
 }
 
-// Interpolação esférica compartilhada pelo desenho e pela simulação.
+// calcular as coordenadas geográficas de um ponto localizado em determinada posição entre a origem e o destino
 export function interpolate(a: Coordinate, b: Coordinate, progress: number): Coordinate {
   const t = clamp(progress, 0, 1);
   if (t === 0) return { lat: a.lat, lng: a.lng };
@@ -134,6 +143,7 @@ export function interpolate(a: Coordinate, b: Coordinate, progress: number): Coo
   };
 }
 
+// Cria identificador de coordenadas, arredondando para 3 casas decimais e adicionando N/S e E/W
 function coordinateIdent(point: Coordinate) {
   return `${Math.abs(point.lat).toFixed(3)}${point.lat < 0 ? "S" : "N"}/` +
     `${Math.abs(point.lng).toFixed(3)}${point.lng < 0 ? "W" : "E"}`;
@@ -146,8 +156,7 @@ function coordinateIdent(point: Coordinate) {
 
 
 
-// Planejamento geográfico para simulação; a base não contém aerovias,
-// procedimentos ou restrições operacionais. Nunca invente um fix publicado.
+// gerar rota
 export function generateRoute(
   origin: Airport,
   destination: Airport,
@@ -189,6 +198,7 @@ export function generateRoute(
       Math.abs(point.lat) > 90 || Math.abs(point.lng) > 180) continue;
 
     const vector = toVector(point);
+
     // Para verificar o quão distante estão os waypoints da rota
     const deviation = EARTH_RADIUS_NM * Math.abs(
       Math.asin(clamp(dot(vector, circle.normal), -1, 1))
